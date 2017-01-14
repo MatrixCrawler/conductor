@@ -10,6 +10,7 @@
 package io.ddavison.conductor;
 
 import org.openqa.selenium.By;
+import org.openqa.selenium.WebDriver;
 import org.openqa.selenium.WebElement;
 import org.openqa.selenium.support.ui.ExpectedCondition;
 
@@ -425,4 +426,19 @@ public interface Conductor<Test> {
      * @return The implementing class for fluency
      */
     Test waitForCondition(ExpectedCondition<?> condition, long timeOutInSeconds, long sleepInMillis);
+
+    /**
+     * Wait for a specific condition before continuing
+     * @param condition the condition to wait for
+     * @param timeOutInSeconds how long to wait
+     * @return The implementing class for fluency
+     */
+    Test waitForCondition(ExpectedCondition<?> condition, long timeOutInSeconds);
+
+    /**
+     * Wait for a specific condition before continuing
+     * @param condition the condition to wait for
+     * @return The implementing class for fluency
+     */
+    Test waitForCondition(ExpectedCondition<?> condition);
 }

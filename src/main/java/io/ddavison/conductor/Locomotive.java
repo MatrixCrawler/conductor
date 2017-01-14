@@ -9,30 +9,13 @@
 
 package io.ddavison.conductor;
 
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
-
-import java.io.File;
-import java.io.IOException;
-import java.net.URL;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.NoSuchElementException;
-import java.util.Properties;
-import java.util.Set;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
-
+import com.google.common.base.Strings;
+import io.ddavison.conductor.util.JvmUtil;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.junit.After;
-import org.openqa.selenium.By;
-import org.openqa.selenium.Capabilities;
-import org.openqa.selenium.NoSuchWindowException;
-import org.openqa.selenium.WebDriver;
-import org.openqa.selenium.WebElement;
+import org.openqa.selenium.*;
 import org.openqa.selenium.chrome.ChromeDriver;
 import org.openqa.selenium.chrome.ChromeDriverService;
 import org.openqa.selenium.edge.EdgeDriver;
@@ -50,53 +33,76 @@ import org.openqa.selenium.support.ui.ExpectedConditions;
 import org.openqa.selenium.support.ui.Select;
 import org.openqa.selenium.support.ui.WebDriverWait;
 
-import com.google.common.base.Strings;
+import java.io.File;
+import java.io.IOException;
+import java.net.URL;
+import java.util.*;
+import java.util.NoSuchElementException;
+import java.util.concurrent.TimeUnit;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
-import io.ddavison.conductor.util.JvmUtil;
+import static org.junit.Assert.*;
 
 /**
  * the base test that includes all Selenium 3 functionality that you will need
  * to get you rolling.
- * @author ddavison
  *
+ * @author ddavison
  */
 public class Locomotive implements Conductor<Locomotive> {
 
-    public static final Logger log = LogManager.getLogger(Locomotive.class);
+    private static final Logger log = LogManager.getLogger(Locomotive.class);
 
     /**
      * All test configuration in here
      */
-    public Config configuration;
+    private Config configuration;
 
-    public WebDriver driver;
+    private WebDriver driver;
 
     // max seconds before failing a script.
-    public int MAX_ATTEMPTS = 5;
-    public int MAX_TIMEOUT = 5;
+    private int MAX_ATTEMPTS = 5;
+    private int MAX_TIMEOUT = 5;
 
     private int attempts = 0;
 
-    public Actions actions;
+    private Actions actions;
 
     private Map<String, String> vars = new HashMap<String, String>();
 
-    private Locomotive(boolean simpleInstance) {}
+    private Locomotive(boolean simpleInstance) {
+    }
+
     /**
      * The url that an automated test will be testing.
      */
-    public String baseUrl;
+    private String baseUrl;
 
     private Pattern p;
     private Matcher m;
-    
-    public Locomotive() {
+
+    public Locomotive(String baseUrl) {
+        this.baseUrl = baseUrl;
+        init();
+    }
+
+    Locomotive() {
+        init();
+    }
+
+    public WebDriver getDriver() {
+        return driver;
+    }
+
+    private void init() {
         final Properties props = new Properties();
         try {
             props.load(getClass().getResourceAsStream("/default.properties"));
         } catch (IOException e) {
             logFatal("Couldn't load in default properties");
-        } catch (Exception e) {}
+        } catch (Exception e) {
+        }
 
         /**
          * Order of overrides:
@@ -111,27 +117,29 @@ public class Locomotive implements Conductor<Locomotive> {
         configuration = new LocomotiveConfig(testConfiguration, props);
 
         DesiredCapabilities capabilities;
-        
-        Capabilities extraCapabilities;
-		try {
-			extraCapabilities = configuration.capabilities().newInstance();
-		} catch (InstantiationException | IllegalAccessException e) {
-			e.printStackTrace();
-			logFatal(e.getMessage());
-			System.exit(1);
-			return;
-		}
 
-        baseUrl = configuration.url();
+        Capabilities extraCapabilities;
+        try {
+            extraCapabilities = configuration.capabilities().newInstance();
+        } catch (InstantiationException | IllegalAccessException e) {
+            e.printStackTrace();
+            logFatal(e.getMessage());
+            System.exit(1);
+            return;
+        }
+
+        if (StringUtils.isEmpty(baseUrl)) {
+            baseUrl = configuration.url();
+        }
 
         log.debug(String.format("\n=== Configuration ===\n" +
-        "\tURL:     %s\n" +
-        "\tBrowser: %s\n" +
-        "\tHub:     %s\n" +
-        "\tBase url: %s\n", configuration.url(), configuration.browser().moniker, configuration.hub(), configuration.baseUrl()));
+                "\tURL:     %s\n" +
+                "\tBrowser: %s\n" +
+                "\tHub:     %s\n" +
+                "\tBase url: %s\n", configuration.url(), configuration.browser().moniker, configuration.hub(), baseUrl));
 
         boolean isLocal = StringUtils.isEmpty(configuration.hub());
-        
+
         switch (configuration.browser()) {
             case CHROME:
                 capabilities = DesiredCapabilities.chrome();
@@ -139,7 +147,7 @@ public class Locomotive implements Conductor<Locomotive> {
                 if (isLocal) try {
                     driver = new ChromeDriver(capabilities);
                 } catch (Exception x) {
-                	x.printStackTrace();
+                    x.printStackTrace();
                     logFatal("Also see https://github.com/conductor-framework/conductor/wiki/WebDriver-Executables");
                     System.exit(1);
                 }
@@ -207,11 +215,12 @@ public class Locomotive implements Conductor<Locomotive> {
         if (!isLocal)
             // they are using a hub.
             try {
-            	capabilities.merge(extraCapabilities);
+                capabilities.merge(extraCapabilities);
                 driver = new RemoteWebDriver(new URL(configuration.hub()), capabilities); // just override the driver.
             } catch (Exception x) {
                 logFatal("Couldn't connect to hub: " + configuration.hub());
                 x.printStackTrace();
+//                log.fatal("Couldn't connect to hub: " + configuration.hub(), x);
                 return;
             }
 
@@ -225,9 +234,9 @@ public class Locomotive implements Conductor<Locomotive> {
         if (JvmUtil.getJvmProperty("os.name").toLowerCase().contains("mac")) {
             System.setProperty(ChromeDriverService.CHROME_DRIVER_EXE_PROPERTY, findFile("chromedriver.mac"));
         } else if (JvmUtil.getJvmProperty("os.name").toLowerCase().contains("nix") ||
-                   JvmUtil.getJvmProperty("os.name").toLowerCase().contains("nux") ||
-                   JvmUtil.getJvmProperty("os.name").toLowerCase().contains("aix")
-        ) {
+                JvmUtil.getJvmProperty("os.name").toLowerCase().contains("nux") ||
+                JvmUtil.getJvmProperty("os.name").toLowerCase().contains("aix")
+                ) {
             System.setProperty(ChromeDriverService.CHROME_DRIVER_EXE_PROPERTY, findFile("chromedriver.linux"));
         } else if (JvmUtil.getJvmProperty("os.name").toLowerCase().contains("win")) {
             System.setProperty(ChromeDriverService.CHROME_DRIVER_EXE_PROPERTY, findFile("chromedriver.exe"));
@@ -239,16 +248,14 @@ public class Locomotive implements Conductor<Locomotive> {
     }
 
     static public String findFile(String filename) {
-    	URL url = new Locomotive(true).getClass().getClassLoader().getResource(filename);
-    	if(url != null)
-    	{
-	    	String filepath = url.getPath();
-			File from = new File(filepath);
-			if(from.exists())
-			{
-				return filepath;
-			}
-    	}
+        URL url = new Locomotive(true).getClass().getClassLoader().getResource(filename);
+        if (url != null) {
+            String filepath = url.getPath();
+            File from = new File(filepath);
+            if (from.exists()) {
+                return filepath;
+            }
+        }
         String paths[] = {"", "bin/", "target/classes"}; // if you have chromedriver somewhere else on the path, then put it here.
         for (String path : paths) {
             if (new File(path + filename).exists())
@@ -272,8 +279,8 @@ public class Locomotive implements Conductor<Locomotive> {
         while (size == 0) {
             size = driver.findElements(by).size();
             if (attempts == MAX_ATTEMPTS) fail(String.format("Could not find %s after %d seconds",
-                                                             by.toString(),
-                                                             MAX_ATTEMPTS));
+                    by.toString(),
+                    MAX_ATTEMPTS));
             attempts++;
             try {
                 Thread.sleep(1000); // sleep for 1 second.
@@ -288,21 +295,10 @@ public class Locomotive implements Conductor<Locomotive> {
         return driver.findElement(by);
     }
 
-    /**
-     * Wait for a specific condition (polling every 1s, for MAX_TIMOUT seconds)
-     * @param condition the condition to wait for
-     * @return The implementing class for fluency
-     */
     public Locomotive waitForCondition(ExpectedCondition<?> condition) {
         return waitForCondition(condition, MAX_TIMEOUT);
     }
 
-    /**
-     * Wait for a specific condition (polling every 1s)
-     * @param condition the condition to wait for
-     * @param timeOutInSeconds the timeout in seconds
-     * @return The implementing class for fluency
-     */
     public Locomotive waitForCondition(ExpectedCondition<?> condition, long timeOutInSeconds) {
         return waitForCondition(condition, timeOutInSeconds, 1000); // poll every second
     }
@@ -319,7 +315,7 @@ public class Locomotive implements Conductor<Locomotive> {
 
     public Locomotive click(By by) {
         waitForCondition(ExpectedConditions.not(ExpectedConditions.invisibilityOfElementLocated(by)))
-        .waitForCondition(ExpectedConditions.elementToBeClickable(by));
+                .waitForCondition(ExpectedConditions.elementToBeClickable(by));
         waitForElement(by).click();
         return this;
     }
@@ -330,15 +326,15 @@ public class Locomotive implements Conductor<Locomotive> {
 
     public Locomotive setText(By by, String text) {
         waitForCondition(ExpectedConditions.not(ExpectedConditions.invisibilityOfElementLocated(by)))
-        .waitForCondition(ExpectedConditions.elementToBeClickable(by));
+                .waitForCondition(ExpectedConditions.elementToBeClickable(by));
         WebElement element = waitForElement(by);
         element.clear();
         element.sendKeys(text);
         waitForCondition(
-        		ExpectedConditions.or(
-        				ExpectedConditions.textToBe(by, text), 
-        				ExpectedConditions.attributeToBe(by, "value", text)
-        				));
+                ExpectedConditions.or(
+                        ExpectedConditions.textToBe(by, text),
+                        ExpectedConditions.attributeToBe(by, "value", text)
+                ));
         return this;
     }
 
@@ -398,7 +394,7 @@ public class Locomotive implements Conductor<Locomotive> {
     public Locomotive check(By by) {
         if (!isChecked(by)) {
             waitForCondition(ExpectedConditions.not(ExpectedConditions.invisibilityOfElementLocated(by)))
-            .waitForCondition(ExpectedConditions.elementToBeClickable(by));
+                    .waitForCondition(ExpectedConditions.elementToBeClickable(by));
             waitForElement(by).click();
             assertTrue(by.toString() + " did not check!", isChecked(by));
         }
@@ -412,7 +408,7 @@ public class Locomotive implements Conductor<Locomotive> {
     public Locomotive uncheck(By by) {
         if (isChecked(by)) {
             waitForCondition(ExpectedConditions.not(ExpectedConditions.invisibilityOfElementLocated(by)))
-            .waitForCondition(ExpectedConditions.elementToBeClickable(by));
+                    .waitForCondition(ExpectedConditions.elementToBeClickable(by));
             waitForElement(by).click();
             assertFalse(by.toString() + " did not uncheck!", isChecked(by));
         }
@@ -426,7 +422,7 @@ public class Locomotive implements Conductor<Locomotive> {
     public Locomotive selectOptionByText(By by, String text) {
         Select box = new Select(waitForElement(by));
         waitForCondition(ExpectedConditions.not(ExpectedConditions.invisibilityOfElementLocated(by)))
-        .waitForCondition(ExpectedConditions.elementToBeClickable(by));
+                .waitForCondition(ExpectedConditions.elementToBeClickable(by));
         box.selectByVisibleText(text);
         return this;
     }
@@ -438,7 +434,7 @@ public class Locomotive implements Conductor<Locomotive> {
     public Locomotive selectOptionByValue(By by, String value) {
         Select box = new Select(waitForElement(by));
         waitForCondition(ExpectedConditions.not(ExpectedConditions.invisibilityOfElementLocated(by)))
-        .waitForCondition(ExpectedConditions.elementToBeClickable(by));
+                .waitForCondition(ExpectedConditions.elementToBeClickable(by));
         box.selectByValue(value);
         return this;
     }
@@ -458,8 +454,7 @@ public class Locomotive implements Conductor<Locomotive> {
                 if (m.find()) {
                     attempts = 0;
                     return switchToWindow(regex);
-                }
-                else {
+                } else {
                     // try for title
                     m = p.matcher(driver.getTitle());
 
@@ -468,11 +463,15 @@ public class Locomotive implements Conductor<Locomotive> {
                         return switchToWindow(regex);
                     }
                 }
-            } catch(NoSuchWindowException e) {
+            } catch (NoSuchWindowException e) {
                 if (attempts <= MAX_ATTEMPTS) {
                     attempts++;
 
-                    try {Thread.sleep(1000);}catch(Exception x) { x.printStackTrace(); }
+                    try {
+                        Thread.sleep(1000);
+                    } catch (Exception x) {
+                        x.printStackTrace();
+                    }
 
                     return waitForWindow(regex);
                 } else {
@@ -486,9 +485,13 @@ public class Locomotive implements Conductor<Locomotive> {
             fail("Window with title: " + regex + " did not appear after " + MAX_ATTEMPTS + " tries. Exiting.");
             return this;
         } else {
-            System.out.println("#waitForWindow() : Window doesn't exist yet. [" + regex + "] Trying again. " + (attempts+1) + "/" + MAX_ATTEMPTS);
+            System.out.println("#waitForWindow() : Window doesn't exist yet. [" + regex + "] Trying again. " + (attempts + 1) + "/" + MAX_ATTEMPTS);
             attempts++;
-            try {Thread.sleep(1000);}catch(Exception x) { x.printStackTrace(); }
+            try {
+                TimeUnit.SECONDS.sleep(1);
+            } catch (Exception x) {
+                x.printStackTrace();
+            }
             return waitForWindow(regex);
         }
     }
@@ -551,8 +554,8 @@ public class Locomotive implements Conductor<Locomotive> {
                     }
                 }
 
-            } catch(NoSuchWindowException e) {
-                fail("Cannot close a window that doesn't exist. ["+regex+"]");
+            } catch (NoSuchWindowException e) {
+                fail("Cannot close a window that doesn't exist. [" + regex + "]");
             }
         }
         return this;
@@ -683,7 +686,7 @@ public class Locomotive implements Conductor<Locomotive> {
         return validateAttribute(By.cssSelector(css), attr, regex);
     }
 
-    public Locomotive validateAttribute(By by, String attr, String regex) {   	
+    public Locomotive validateAttribute(By by, String attr, String regex) {
         String actual = null;
         try {
             actual = getAttribute(by, attr);
@@ -702,7 +705,7 @@ public class Locomotive implements Conductor<Locomotive> {
                 attr,
                 regex,
                 actual
-                ), m.find());
+        ), m.find());
 
         return this;
     }
@@ -711,7 +714,7 @@ public class Locomotive implements Conductor<Locomotive> {
         p = Pattern.compile(regex);
         m = p.matcher(driver.getCurrentUrl());
 
-        assertTrue("Url does not match regex [" + regex + "] (actual is: \""+driver.getCurrentUrl()+"\")", m.find());
+        assertTrue("Url does not match regex [" + regex + "] (actual is: \"" + driver.getCurrentUrl() + "\")", m.find());
         return this;
     }
 
@@ -740,9 +743,9 @@ public class Locomotive implements Conductor<Locomotive> {
 
     public Locomotive navigateTo(String url) {
         // absolute url
-        if (url.contains("://"))      driver.navigate().to(url);
+        if (url.contains("://")) driver.navigate().to(url);
         else if (url.startsWith("/")) driver.navigate().to(baseUrl.concat(url));
-        else                          driver.navigate().to(driver.getCurrentUrl().concat(url));
+        else driver.navigate().to(driver.getCurrentUrl().concat(url));
 
         return this;
     }
