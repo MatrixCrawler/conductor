@@ -16,62 +16,80 @@ import static org.junit.Assert.assertTrue;
 import java.util.Iterator;
 import java.util.logging.Level;
 
+import org.junit.AfterClass;
+import org.junit.BeforeClass;
 import org.junit.Test;
 import org.openqa.selenium.logging.LogEntries;
 import org.openqa.selenium.logging.LogEntry;
 import org.openqa.selenium.logging.LogType;
+import spark.Spark;
 
 /**
  * @author {supernevi}
  * @since Oct 11, 2016
  */
 @Config(
-		browser = Browser.CHROME, 
-		url="http://ddavison.io/tests/logging-test.htm",
+		browser = Browser.CHROME,
+		url="http://localhost:4567/logging-test.htm",
 		capabilities=ChromeCapabilitiesExample.class)
 public class LoggingTest extends Locomotive {
+
+	@BeforeClass
+	public static void fireUpSpark() {
+		Spark.staticFiles.location("/html");
+		Spark.staticFiles.header("Content-type","text/html");
+		Spark.init();
+		Spark.awaitInitialization();
+	}
+
+	@AfterClass
+	public static void shutdownSpark() {
+		Spark.stop();
+	}
+
+
 	@Test
 	public void loggingTest() {
-		LogEntries logEntries = driver.manage().logs().get(LogType.BROWSER);
+		LogEntries logEntries = getDriver().manage().logs().get(LogType.BROWSER);
 		Iterator<LogEntry> it = logEntries.iterator();
 		assertNotNull(it);
 		assertNotNull(it.hasNext());
 		LogEntry entry = null;
-		
+
 		// There should be 5 console-outputs
 		// 1. "console.log("Simple log");"
 		assertNotNull(it.hasNext());
 		entry = it.next();
 		System.out.println(entry);
 		assertEquals(Level.INFO, entry.getLevel());
-		assertTrue(entry.getMessage().endsWith("Simple log"));
-				
+		assertTrue(entry.getMessage().endsWith("\"Simple log\""));
+
 		// 2. "console.debug("Debug log");"
 		assertNotNull(it.hasNext());
 		entry = it.next();
 		System.out.println(entry);
 		assertEquals(Level.FINE, entry.getLevel());
-		assertTrue(entry.getMessage().endsWith("Debug log"));
-		
+		assertTrue(entry.getMessage().endsWith("\"Debug log\""));
+
 		// 3. "console.warn("Warn log");"
 		assertNotNull(it.hasNext());
 		entry = it.next();
 		System.out.println(entry);
 		assertEquals(Level.WARNING, entry.getLevel());
-		assertTrue(entry.getMessage().endsWith("Warn log"));
-		
+		assertTrue(entry.getMessage().endsWith("\"Warn log\""));
+
 		// 4. "console.error("Error log");"
 		assertNotNull(it.hasNext());
 		entry = it.next();
 		System.out.println(entry);
 		assertEquals(Level.SEVERE, entry.getLevel());
-		assertTrue(entry.getMessage().endsWith("Error log"));
-		
+		assertTrue(entry.getMessage().endsWith("\"Error log\""));
+
 		// 5. "console.info("Info log");"
 		assertNotNull(it.hasNext());
 		entry = it.next();
 		System.out.println(entry);
 		assertEquals(Level.INFO, entry.getLevel());
-		assertTrue(entry.getMessage().endsWith("Info log"));
+		assertTrue(entry.getMessage().endsWith("\"Info log\""));
 	}
 }
